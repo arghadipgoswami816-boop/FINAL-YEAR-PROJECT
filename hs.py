@@ -1,9 +1,7 @@
 import random
 import mysql.connector
-from datetime import datetime
 
-width = 100
-print("**** HOTEL MANAGEMENT SYSTEM ****".center(width))
+print("\n" + "**** HOTEL MANAGEMENT SYSTEM ****".center(80))
 
 
 class HotelManagementSystem:
@@ -12,35 +10,21 @@ class HotelManagementSystem:
         self.connection = None
         self.cursor = None
 
-    # ---------- MYSQL CONNECTION ----------
-    def connect_to_mysql(self, password):
-        try:
-            self.connection = mysql.connector.connect(
-                host="localhost",
-                user="root",
-                password=password,
-                auth_plugin="mysql_native_password"
-            )
-            self.cursor = self.connection.cursor()
-            self.cursor.execute("CREATE DATABASE IF NOT EXISTS HMS")
-            self.connection.commit()
-            print("Connected to MySQL successfully!")
-            return True
-        except mysql.connector.Error as e:
-            print("MySQL Error:", e)
-            return False
-
-    def use_database(self, password):
+    # ---------------- MYSQL CONNECTION ----------------
+    def connect(self, password):
         self.connection = mysql.connector.connect(
             host="localhost",
             user="root",
             password=password,
-            database="HMS",
             auth_plugin="mysql_native_password"
         )
         self.cursor = self.connection.cursor()
+        self.cursor.execute("CREATE DATABASE IF NOT EXISTS HMS")
+        self.connection.commit()
+        self.connection.database = "HMS"
+        print("Connected to MySQL & HMS database")
 
-    # ---------- CUSTOMER ----------
+    # ---------------- CUSTOMER ----------------
     def create_customer(self):
         self.cursor.execute("""
         CREATE TABLE IF NOT EXISTS C_DETAILS(
@@ -69,33 +53,85 @@ class HotelManagementSystem:
         self.connection.commit()
         print("Customer added successfully!")
 
-    # ---------- ROOMS ----------
+    def update_customer(self):
+        cid = int(input("Enter CID to update: "))
+        self.cursor.execute("SELECT * FROM C_DETAILS WHERE C_ID=%s", (cid,))
+        data = self.cursor.fetchone()
+
+        if not data:
+            print("Customer not found")
+            return
+
+        print("Leave blank to keep old value")
+        name = input(f"Name [{data[1]}]: ") or data[1]
+        address = input(f"Address [{data[2]}]: ") or data[2]
+        age = input(f"Age [{data[3]}]: ") or data[3]
+        country = input(f"Country [{data[4]}]: ") or data[4]
+        phone = input(f"Phone [{data[5]}]: ") or data[5]
+        email = input(f"Email [{data[6]}]: ") or data[6]
+
+        sql = """
+        UPDATE C_DETAILS
+        SET NAME=%s, ADDRESS=%s, AGE=%s, COUNTRY=%s, PHONE=%s, EMAIL=%s
+        WHERE C_ID=%s
+        """
+        self.cursor.execute(sql, (name, address, age, country, phone, email, cid))
+        self.connection.commit()
+        print("Customer updated successfully!")
+
+    def delete_customer(self):
+        cid = int(input("Enter CID to delete: "))
+        self.cursor.execute("SELECT * FROM C_DETAILS WHERE C_ID=%s", (cid,))
+        if not self.cursor.fetchone():
+            print("Customer not found")
+            return
+
+        confirm = input("Are you sure? (yes/no): ").lower()
+        if confirm == "yes":
+            self.cursor.execute("DELETE FROM C_DETAILS WHERE C_ID=%s", (cid,))
+            self.connection.commit()
+            print("Customer deleted successfully")
+        else:
+            print("Deletion cancelled")
+
+    def show_customer(self):
+        print("1. Show All Customers")
+        print("2. Show Specific Customer")
+        ch = input("Choice: ")
+
+        if ch == "1":
+            self.cursor.execute("SELECT * FROM C_DETAILS")
+            rows = self.cursor.fetchall()
+            for r in rows:
+                print(r)
+        elif ch == "2":
+            cid = int(input("Enter CID: "))
+            self.cursor.execute("SELECT * FROM C_DETAILS WHERE C_ID=%s", (cid,))
+            r = self.cursor.fetchone()
+            if r:
+                print(r)
+            else:
+                print("Customer not found")
+
+    # ---------------- ROOMS ----------------
     def initialize_rooms(self):
         self.cursor.execute("""
         CREATE TABLE IF NOT EXISTS ROOMS(
             ROOM_NO INT PRIMARY KEY,
-            CATEGORY VARCHAR(20),
-            STATUS VARCHAR(15) DEFAULT 'AVAILABLE'
+            STATUS VARCHAR(15)
         )
         """)
-
         self.cursor.execute("SELECT COUNT(*) FROM ROOMS")
         if self.cursor.fetchone()[0] == 0:
-            rooms = []
-            rooms += [(i, 'Ultra Luxury') for i in range(1, 6)]
-            rooms += [(i, 'Luxury') for i in range(6, 16)]
-            rooms += [(i, 'Elite') for i in range(16, 36)]
-            rooms += [(i, 'Economy') for i in range(36, 53)]
-            self.cursor.executemany("INSERT INTO ROOMS VALUES (%s,%s,'AVAILABLE')", rooms)
+            rooms = [(i, "AVAILABLE") for i in range(1, 41)]
+            self.cursor.executemany("INSERT INTO ROOMS VALUES (%s,%s)", rooms)
             self.connection.commit()
-            print("Rooms initialized!")
 
-    # ---------- ROOM RENT ----------
     def book_room(self):
         self.cursor.execute("""
         CREATE TABLE IF NOT EXISTS ROOM_RENT(
             C_ID INT,
-            ROOMNO INT,
+            ROOM_NO INT,
             DAYS INT,
             RENT INT
         )
@@ -104,14 +140,14 @@ class HotelManagementSystem:
         cid = int(input("Enter CID: "))
         days = int(input("Number of days: "))
 
-        self.cursor.execute("SELECT ROOM_NO FROM ROOMS WHERE STATUS='AVAILABLE'")
-        rooms = self.cursor.fetchall()
+        self.cursor.execute("SELECT ROOM_NO FROM ROOMS WHERE STATUS='AVAILABLE' LIMIT 1")
+        room = self.cursor.fetchone()
 
-        if not rooms:
-            print("No rooms available!")
+        if not room:
+            print("No rooms available")
             return
 
-        room_no = rooms[0][0]
+        room_no = room[0]
         rent = days * 3000
 
         self.cursor.execute(
@@ -123,10 +159,9 @@ class HotelManagementSystem:
             (room_no,)
         )
         self.connection.commit()
-
         print(f"Room {room_no} booked. Rent = ₹{rent}")
 
-    # ---------- RESTAURANT ----------
+    # ---------------- RESTAURANT ----------------
     def restaurant(self):
         self.cursor.execute("""
         CREATE TABLE IF NOT EXISTS RESTAURANT(
@@ -135,63 +170,69 @@ class HotelManagementSystem:
         )
         """)
 
-        cid = int(input("CID: "))
-        qty = int(input("Quantity of meals (₹300 each): "))
+        cid = int(input("Enter CID: "))
+        qty = int(input("Meals quantity (₹300 each): "))
         bill = qty * 300
 
         self.cursor.execute("INSERT INTO RESTAURANT VALUES (%s,%s)", (cid, bill))
         self.connection.commit()
         print("Food Bill = ₹", bill)
 
-    # ---------- TOTAL ----------
-    def calculate_total(self):
-        cid = int(input("CID: "))
+    # ---------------- BILL ----------------
+    def total_bill(self):
+        cid = int(input("Enter CID: "))
 
         self.cursor.execute("SELECT RENT FROM ROOM_RENT WHERE C_ID=%s", (cid,))
-        room = self.cursor.fetchone()
+        r = self.cursor.fetchone()
 
         self.cursor.execute("SELECT BILL FROM RESTAURANT WHERE CID=%s", (cid,))
-        food = self.cursor.fetchone()
+        f = self.cursor.fetchone()
 
-        total = (room[0] if room else 0) + (food[0] if food else 0)
+        total = (r[0] if r else 0) + (f[0] if f else 0)
         print("Total Bill = ₹", total)
 
-    # ---------- CLOSE ----------
     def close(self):
         self.cursor.close()
         self.connection.close()
-        print("Connection closed.")
+        print("Connection closed")
 
 
-# ---------- MAIN ----------
+# ---------------- MAIN ----------------
 if __name__ == "__main__":
     hms = HotelManagementSystem()
     pwd = input("Enter MySQL Password: ")
+    hms.connect(pwd)
+    hms.initialize_rooms()
 
-    if hms.connect_to_mysql(pwd):
-        hms.use_database(pwd)
-        hms.initialize_rooms()
-
-        while True:
-            print("""
+    while True:
+        print("""
 1. Add Customer
 2. Book Room
 3. Restaurant
-4. Total Bill
-5. Exit
+4. Calculate Total Amount
+5. Update Customer Details
+6. Delete Customer Details
+7. Show Customer Details
+8. Exit
 """)
-            ch = input("Choice: ")
+        ch = input("Enter choice: ")
 
-            if ch == '1':
-                hms.create_customer()
-            elif ch == '2':
-                hms.book_room()
-            elif ch == '3':
-                hms.restaurant()
-            elif ch == '4':
-                hms.calculate_total()
-            elif ch == '5':
-                hms.close()
-                break
-            else:
-                print("Invalid choice")
+        if ch == "1":
+            hms.create_customer()
+        elif ch == "2":
+            hms.book_room()
+        elif ch == "3":
+            hms.restaurant()
+        elif ch == "4":
+            hms.total_bill()
+        elif ch == "5":
+            hms.update_customer() 
+        elif ch == "6":
+            hms.delete_customer()
+        elif ch == "7":
+            hms.show_customer()
+        elif ch == "8":
+            hms.close()
+            break
+        else:
+            print("Invalid choice")
